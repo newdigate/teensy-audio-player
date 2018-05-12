@@ -44,7 +44,7 @@
 #include <Adafruit_ST7735.h> // Hardware-specific library
 #include <SPI.h>
 
-Encoder myEnc(30, 31);
+Encoder myEnc(31, 32);
 
 #define sclk 14 //27  // SCLK can also use pin 13,14,27zz
 #define mosi 7  // MOSI can also use pin 7,11,28
@@ -111,7 +111,10 @@ unsigned long currentDirectory = 0;
 String currentPath; 
 
 
-long oldPosition = 0;
+long oldPosition = -999;
+long positionAtStartOfChange = 0;
+unsigned long encHasntChangedSince = 0;
+boolean encoderChanged = false;
 void setup() {
   Serial.begin(115200);
 
@@ -306,8 +309,19 @@ void controls() {
 
   long newPosition = myEnc.read();
   if (newPosition != oldPosition) {
-    oldPosition = newPosition;
-    Serial.println(newPosition);
+    if (!encoderChanged) {
+      oldPosition = newPosition;
+    //Serial.println(newPosition);
+      encHasntChangedSince = millis();
+    }
+    encoderChanged = true;
+    if (encoderChanged && millis() - encHasntChangedSince >= 100) {
+      signed char delta = delta = (newPosition > oldPosition)? 1 : -1;
+      oldPosition = newPosition;
+      currentDirectory += delta;
+      Serial.printf("currentDirectory %d \n", currentDirectory);
+      encoderChanged = false;
+   }
   }
 }
 
