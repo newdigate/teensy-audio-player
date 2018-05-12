@@ -29,9 +29,10 @@
 #include <Bounce.h> //Buttons
 #include <EEPROM.h> // store last track
 #include "BAGuitar.h"
-
 #include <play_sd_mp3.h> //mp3 decoder
 #include <play_sd_aac.h> // AAC decoder
+#include "ID3Reader.h"
+
 
 #define BUTTON1 4  //NEXT
 #define BUTTON2 5  //Play Pause
@@ -60,8 +61,9 @@ int track;
 int tracknum;
 int trackext[255]; // 0= nothing, 1= mp3, 2= aac, 3= wav.
 String tracklist[255];
+String dirlist[255];
 File root;
-char playthis[15];
+char playthis[64];
 boolean trackchange;
 boolean paused;
 
@@ -101,6 +103,9 @@ BAAudioControlWM8731      codecControl;
 
 #endif
 
+unsigned long numDirectories = 0;
+unsigned long currentDirectory = 0;
+String currentPath; 
 
 void setup() {
   Serial.begin(115200);
@@ -150,44 +155,80 @@ void setup() {
   }
   //Starting to index the SD card for MP3/AAC.
   root = SD.open("/");
-
+  numDirectories = 0;
+  currentDirectory = 0;
   while(true) {
 
-    File files =  root.openNextFile();
+    File dir =  root.openNextFile();
+    if (!dir) {
+      //If no more files, break out.
+      break;
+    }
+
+    if (dir.isDirectory()) {
+
+      if (memcmp(dir.name(),"SPOTLI", 6) == 0)
+        continue;
+
+      if (memcmp(dir.name(),"FSEVEN~1", 8) == 0)
+        continue;
+        
+       dirlist[numDirectories] = dir.name();
+       Serial.printf("first level folder: %s\n",dir.name());     
+       numDirectories++;     
+    }
+  }
+  //root.close();
+     ;
+  currentPath = dirlist[currentDirectory];
+  Serial.printf("Current path: %s\n",currentPath.c_str());
+  String dirPath = "/" + dirlist[currentDirectory] + "/";
+   Serial.printf("Opening: %s\n",dirPath.c_str());
+  File dir = SD.open(dirPath.c_str());
+  while (true) { 
+
+    File files =  dir.openNextFile();
     if (!files) {
       //If no more files, break out.
       break;
     }
+
     String curfile = files.name(); //put file in string
+    
     //look for MP3 or AAC files
     int m = curfile.lastIndexOf(".MP3");
     int a = curfile.lastIndexOf(".AAC");
     int a1 = curfile.lastIndexOf(".MP4");
     int a2 = curfile.lastIndexOf(".M4A");
+    int underscore = curfile.indexOf("_");
     //int w = curfile.lastIndexOf(".WAV");
 
     // if returned results is more then 0 add them to the list.
-    if(m > 0 || a > 0 || a1 > 0 || a2 > 0 ){  
+    if ((m > 0 || a > 0 || a1 > 0 || a2 > 0 ) && (underscore != 0)) {  
 
       tracklist[tracknum] = files.name();
       if(m > 0) trackext[tracknum] = 1;
       if(a > 0) trackext[tracknum] = 2;  
       if(a1 > 0) trackext[tracknum] = 2;
       if(a2 > 0) trackext[tracknum] = 2;
+      Serial.printf("file: %s\n",files.name());
       //  if(w > 0) trackext[tracknum] = 3;
-      Serial.print(m);
+      //Serial.print(m);
       tracknum++;  
     }
-    // close 
+    
     files.close();
   }
+    // close 
+  dir.close();
+
   //check if tracknum exist in tracklist from eeprom, like if you deleted some files or added.
   if(track > tracknum){
     //if it is too big, reset to 0
     EEPROM.write(0,0);
     track = 0;
   }
-  tracklist[track].toCharArray(playthis, sizeof(tracklist[track]));
+
 
   tft.initR(INITR_GREENTAB); // initialize a ST7735R chip, green tab
   //tft.setRotation(2);
@@ -205,12 +246,35 @@ void playFileMP3(const char *filename)
   // Start playing the file.  This sketch continues to
   // run while the file plays.
   EEPROM.write(0,track); //meanwhile write the track position to eeprom address 0
+  
+  tft.fillScreen(ST7735_BLACK);
+ 
+
+  ID3Reader id3reader = ID3Reader();  
+  id3reader.onID3Tag = [&] (const char *tag, const char *text) {
+        Serial.printf("!!!! -%s : %s\n", tag, text);
+        if (memcmp(tag,"TIT2",4) == 0) {
+          tft.setCursor(0,5);
+          tft.setTextSize(1);
+          tft.setTextColor(ST7735_WHITE);   
+          tft.print(text);
+          tft.print("\n");
+        } else if (memcmp(tag,"TALB",4) == 0) {
+          tft.setCursor(0,64);
+          tft.setTextSize(1);
+          tft.setTextColor(ST7735_GREEN);   
+          tft.print(text);
+          tft.print("\n");
+        }
+    };
+
+  id3reader.open(filename);
   playMp31.play(filename);
-        tft.fillScreen(ST7735_BLACK);
-        tft.setCursor(h0,10);
-        tft.setTextSize(1);
-        tft.setTextColor(ST7735_RED);   
-        tft.print(filename);
+
+  
+        
+        
+
 
 
   // Simply wait for the file to finish playing.
@@ -313,11 +377,12 @@ void loop() {
   Serial.println(track);
   Serial.println(trackext[track]);
   Serial.println(tracklist[track]);
-
-
+  String path = "/" + dirlist[currentDirectory] + "/" + tracklist[track];
+  Serial.println(path.c_str());
   if(trackext[track] == 1){
     Serial.println("MP3" );
-    playFileMP3(playthis);
+    
+    playFileMP3(path.c_str());
   }else if(trackext[track] == 2){
     Serial.println("aac");
     playFileAAC(playthis);
@@ -375,14 +440,3 @@ void randomtrack(){
 
   tracklist[track].toCharArray(playthis, sizeof(tracklist[track])); //since we have to convert String to Char will do this    
 }
-
-
-
-
-
-
-
-
-
-
-
