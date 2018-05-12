@@ -33,6 +33,8 @@
 #include <play_sd_aac.h> // AAC decoder
 #include "ID3Reader.h"
 
+#define ENCODER_DO_NOT_USE_INTERRUPTS
+#include <Encoder.h>
 
 #define BUTTON1 4  //NEXT
 #define BUTTON2 5  //Play Pause
@@ -42,6 +44,7 @@
 #include <Adafruit_ST7735.h> // Hardware-specific library
 #include <SPI.h>
 
+Encoder myEnc(30, 31);
 
 #define sclk 14 //27  // SCLK can also use pin 13,14,27zz
 #define mosi 7  // MOSI can also use pin 7,11,28
@@ -61,10 +64,10 @@ int track;
 int tracknum;
 int trackext[255]; // 0= nothing, 1= mp3, 2= aac, 3= wav.
 String tracklist[255];
-String dirlist[255];
 File root;
 char playthis[64];
 boolean trackchange;
+boolean dirchange;
 boolean paused;
 
 AudioPlaySdMp3           playMp31; 
@@ -107,6 +110,8 @@ unsigned long numDirectories = 0;
 unsigned long currentDirectory = 0;
 String currentPath; 
 
+
+long oldPosition = 0;
 void setup() {
   Serial.begin(115200);
 
@@ -139,6 +144,7 @@ void setup() {
 
   Serial.println("Enabling codec...\n");
   codecControl.enable();
+  Serial.println("Enabled...\n");
   delay(100);
   
   //put the gain a bit lower, some MP3 files will clip otherwise.
@@ -152,38 +158,14 @@ void setup() {
       Serial.println("Unable to access the SD card");
       delay(500);
     }
-  }
+  } 
+  Serial.println("started sdcard...\n");
   //Starting to index the SD card for MP3/AAC.
-  root = SD.open("/");
-  numDirectories = 0;
-  currentDirectory = 0;
-  while(true) {
-
-    File dir =  root.openNextFile();
-    if (!dir) {
-      //If no more files, break out.
-      break;
-    }
-
-    if (dir.isDirectory()) {
-
-      if (memcmp(dir.name(),"SPOTLI", 6) == 0)
-        continue;
-
-      if (memcmp(dir.name(),"FSEVEN~1", 8) == 0)
-        continue;
-        
-       dirlist[numDirectories] = dir.name();
-       Serial.printf("first level folder: %s\n",dir.name());     
-       numDirectories++;     
-    }
-  }
-  //root.close();
-     ;
-  currentPath = dirlist[currentDirectory];
+   
+  currentPath = getCurrentDir();
   Serial.printf("Current path: %s\n",currentPath.c_str());
-  String dirPath = "/" + dirlist[currentDirectory] + "/";
-   Serial.printf("Opening: %s\n",dirPath.c_str());
+  String dirPath = "/" + currentPath + "/";
+  Serial.printf("Opening: %s\n",dirPath.c_str());
   File dir = SD.open(dirPath.c_str());
   while (true) { 
 
@@ -234,6 +216,8 @@ void setup() {
   //tft.setRotation(2);
   tft.setTextWrap(true);
   tft.fillScreen(ST7735_BLACK);
+
+  oldPosition = myEnc.read();
 }
 
 void playFileMP3(const char *filename)
@@ -258,9 +242,9 @@ void playFileMP3(const char *filename)
           tft.setTextSize(1);
           tft.setTextColor(ST7735_WHITE);   
           tft.print(text);
-          tft.print("\n");
+          tft.print(" ");
         } else if (memcmp(tag,"TALB",4) == 0) {
-          tft.setCursor(0,64);
+          //tft.setCursor(0,64);
           tft.setTextSize(1);
           tft.setTextColor(ST7735_GREEN);   
           tft.print(text);
@@ -319,6 +303,12 @@ void controls() {
   if ( bouncer3.fallingEdge()) { 
     prevtrack();
   }  
+
+  long newPosition = myEnc.read();
+  if (newPosition != oldPosition) {
+    oldPosition = newPosition;
+    Serial.println(newPosition);
+  }
 }
 
 void serialcontrols(){
@@ -377,7 +367,7 @@ void loop() {
   Serial.println(track);
   Serial.println(trackext[track]);
   Serial.println(tracklist[track]);
-  String path = "/" + dirlist[currentDirectory] + "/" + tracklist[track];
+  String path = "/" + currentPath + "/" + tracklist[track];
   Serial.println(path.c_str());
   if(trackext[track] == 1){
     Serial.println("MP3" );
@@ -404,6 +394,51 @@ void nexttrack(){
   if(track >= tracknum){ // keeps in tracklist.
     track = 0;
   }  
+  tracklist[track].toCharArray(playthis, sizeof(tracklist[track])); //since we have to convert String to Char will do this    
+}
+
+String getCurrentDir() {
+  File rootdir = SD.open("/");
+  File dir =  rootdir.openNextFile();
+  if (!dir) return NULL;
+  long i = 0;
+  do {   
+    if (dir.isDirectory()) {
+
+      if (
+             (memcmp(dir.name(),"SPOTLI", 6) == 0)
+          || (memcmp(dir.name(),"FSEVEN~1", 8) == 0)) {
+            
+          }
+      else {
+          Serial.printf("first level folder: %s\n",dir.name()); 
+      
+          if (currentDirectory == i) {
+            root.close();
+            return dir.name();
+          }
+                    
+          i++;      
+      }
+
+    }
+
+    dir = rootdir.openNextFile();
+  } while (dir);
+  root.close();
+  
+  // if we got here we have over stepped...
+  currentDirectory = 0;
+  return getCurrentDir();
+}
+
+void nextDirectory() {
+  Serial.println("Next directory!");
+  dirchange=false; // we are doing a track change here, so the auto trackchange will not skip another one.
+  playMp31.stop();
+  playAac1.stop();
+  currentDirectory++;
+  track=0; 
   tracklist[track].toCharArray(playthis, sizeof(tracklist[track])); //since we have to convert String to Char will do this    
 }
 
