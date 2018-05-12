@@ -39,6 +39,7 @@
 #define BUTTON1 4  //NEXT
 #define BUTTON2 5  //Play Pause
 #define BUTTON3 6  //PREV 
+#define BUTTON4 30  //PREV 
 
 #include <Adafruit_GFX.h>    // Core graphics library
 #include <Adafruit_ST7735.h> // Hardware-specific library
@@ -58,6 +59,7 @@ Adafruit_ST7735 tft = Adafruit_ST7735(cs, dc, mosi, sclk, rst);
 Bounce bouncer1 = Bounce(BUTTON1, 50); 
 Bounce bouncer2 = Bounce(BUTTON2, 50); 
 Bounce bouncer3 = Bounce(BUTTON3, 50);
+Bounce bouncer4 = Bounce(BUTTON4, 50);
 
 const int chipSelect = BUILTIN_SDCARD;  // if using another pin for SD card CS.
 int track;
@@ -115,14 +117,14 @@ long oldPosition = -999;
 long positionAtStartOfChange = 0;
 unsigned long encHasntChangedSince = 0;
 boolean encoderChanged = false;
+
+bool readDirectory();
+
 void setup() {
   Serial.begin(115200);
 
   
 #ifdef AUDIO_BOARD
-  //sgtl5000_1.enable();
-  //sgtl5000_1.volume(0.5);
-
   SPI.setMOSI(7);
   SPI.setSCK(14);
 
@@ -134,9 +136,11 @@ void setup() {
   pinMode(BUTTON1,INPUT_PULLUP);
   pinMode(BUTTON3,INPUT_PULLUP);
   pinMode(BUTTON2,INPUT_PULLUP);  
+  pinMode(BUTTON4,INPUT_PULLUP);  
   // reads the last track what was playing.
   track = EEPROM.read(0); 
-
+  currentDirectory = EEPROM.read(1);
+  Serial.printf("dir: %d \t\t track: %d\n", currentDirectory, track);
   // Audio connections require memory to work.  For more
   // detailed information, see the MemoryAndCpuUsage example
   //AudioMemory(16);
@@ -165,54 +169,11 @@ void setup() {
   Serial.println("started sdcard...\n");
   //Starting to index the SD card for MP3/AAC.
    
-  currentPath = getCurrentDir();
-  Serial.printf("Current path: %s\n",currentPath.c_str());
-  String dirPath = "/" + currentPath + "/";
-  Serial.printf("Opening: %s\n",dirPath.c_str());
-  File dir = SD.open(dirPath.c_str());
-  while (true) { 
+  while (!readDirectory()) { 
+    delay(100); 
+  } 
+ 
 
-    File files =  dir.openNextFile();
-    if (!files) {
-      //If no more files, break out.
-      break;
-    }
-
-    String curfile = files.name(); //put file in string
-    
-    //look for MP3 or AAC files
-    int m = curfile.lastIndexOf(".MP3");
-    int a = curfile.lastIndexOf(".AAC");
-    int a1 = curfile.lastIndexOf(".MP4");
-    int a2 = curfile.lastIndexOf(".M4A");
-    int underscore = curfile.indexOf("_");
-    //int w = curfile.lastIndexOf(".WAV");
-
-    // if returned results is more then 0 add them to the list.
-    if ((m > 0 || a > 0 || a1 > 0 || a2 > 0 ) && (underscore != 0)) {  
-
-      tracklist[tracknum] = files.name();
-      if(m > 0) trackext[tracknum] = 1;
-      if(a > 0) trackext[tracknum] = 2;  
-      if(a1 > 0) trackext[tracknum] = 2;
-      if(a2 > 0) trackext[tracknum] = 2;
-      Serial.printf("file: %s\n",files.name());
-      //  if(w > 0) trackext[tracknum] = 3;
-      //Serial.print(m);
-      tracknum++;  
-    }
-    
-    files.close();
-  }
-    // close 
-  dir.close();
-
-  //check if tracknum exist in tracklist from eeprom, like if you deleted some files or added.
-  if(track > tracknum){
-    //if it is too big, reset to 0
-    EEPROM.write(0,0);
-    track = 0;
-  }
 
 
   tft.initR(INITR_GREENTAB); // initialize a ST7735R chip, green tab
@@ -292,11 +253,74 @@ void playFileAAC(const char *filename)
     serialcontrols();
   }
 }
+bool readDirectory() {
+  tracknum = 0;
+  currentPath = getCurrentDir();
+  Serial.printf("Current path: %s\n",currentPath.c_str());
+  String dirPath = "/" + currentPath + "/";
+  Serial.printf("Opening: %s\n",dirPath.c_str());
+  File dir = SD.open(dirPath.c_str());
+  while (true) { 
 
+    File files =  dir.openNextFile();
+    if (!files) {
+      //If no more files, break out.
+      break;
+    }
+
+    String curfile = files.name(); //put file in string
+    
+    //look for MP3 or AAC files
+    int m = curfile.lastIndexOf(".MP3");
+    int a = curfile.lastIndexOf(".AAC");
+    int a1 = curfile.lastIndexOf(".MP4");
+    int a2 = curfile.lastIndexOf(".M4A");
+    int underscore = curfile.indexOf("_");
+    //int w = curfile.lastIndexOf(".WAV");
+
+    // if returned results is more then 0 add them to the list.
+    if ((m > 0 || a > 0 || a1 > 0 || a2 > 0 ) && (underscore != 0)) {  
+
+      tracklist[tracknum] = files.name();
+      if(m > 0) trackext[tracknum] = 1;
+      if(a > 0) trackext[tracknum] = 2;  
+      if(a1 > 0) trackext[tracknum] = 2;
+      if(a2 > 0) trackext[tracknum] = 2;
+      Serial.printf("file: %s\n",files.name());
+      //  if(w > 0) trackext[tracknum] = 3;
+      //Serial.print(m);
+      tracknum++;  
+    }
+    
+    files.close();
+  }
+    // close 
+  dir.close();
+  
+  if (tracknum == 0) {
+    Serial.print("there are not traks in this folders");
+    // if there are no files...
+    currentDirectory++;
+    EEPROM.write(1,currentDirectory);
+    EEPROM.write(0,0);
+    track = 0;
+    return false;
+  } else
+    //check if tracknum exist in tracklist from eeprom, like if you deleted some files or added.
+  if(track > tracknum){
+    //if it is too big, reset to 0
+    EEPROM.write(0,0);
+    track = 0;
+    return false;
+  }
+  return true;
+}
+  
 void controls() {
   bouncer1.update();
   bouncer2.update();
   bouncer3.update();
+  bouncer4.update();
   if ( bouncer1.fallingEdge()) { 
     nexttrack();
   }
@@ -305,6 +329,15 @@ void controls() {
   }
   if ( bouncer3.fallingEdge()) { 
     prevtrack();
+  }  
+  if ( bouncer4.fallingEdge()) {
+    playMp31.stop();
+    playAac1.stop();
+    while (!readDirectory()) { 
+      delay(100);
+      EEPROM.write(0, 0); 
+      EEPROM.write(1, currentDirectory);  
+    } 
   }  
 
   long newPosition = myEnc.read();
