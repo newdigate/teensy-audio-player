@@ -2,7 +2,7 @@
 sd-card music player micro-controller project based on the example provided in ardiuno-teensy-codec by Frank Boesing
 
 * plays mp3 files using arduino-teensy-codec library - https://github.com/FrankBoesing/Arduino-Teensy-Codec-lib
-* reads mp3 tags for album and song title (id3v2.3 & id3v2.4)
+* parses mp3 tags (id3v2.3 & id3v2.4)
 * displays song title and album on 128x128 st7735 color display.
 
 ### This example is specifically for the hardware combination below. 
