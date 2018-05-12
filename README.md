@@ -11,7 +11,7 @@ sd-card music player using a teensy 3.6 micro-controller; based on the example p
 * 1 x ST7735 128 x 128 oled tft lcd 
    
 ### Todo:
-* read jpeg album cover images from tag in mp3 if available
+* read and display jpeg album cover images from tag in mp3 if available
 * add compatibility
   * teensy audio board
   * ili9341 320x240 display
