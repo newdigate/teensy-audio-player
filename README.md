@@ -5,6 +5,7 @@ breadboard and firmware project for teensy 3.6 devices to play mp3 and aac audio
   * https://github.com/FrankBoesing/Arduino-Teensy-Codec-lib
 * parses mp3 tags (id3v2.3 & id3v2.4)
 * displays mp3 song title and album on 128x128 st7735 color display.
+* use rotary encoder to change directory
 
 ## bill of materials
 | | Component |  |  |
