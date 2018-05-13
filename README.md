@@ -6,7 +6,7 @@ sd-card music player using a teensy 3.6 micro-controller; based on the example p
 * parses mp3 tags (id3v2.3 & id3v2.4)
 * displays mp3 song title and album on 128x128 st7735 color display.
 
-### Bill of materials
+## bill of materials
 | | Component |  |  |
 |--|----|----|----|
 | 1 | teensy 3.6 board | https://www.pjrc.com/store/teensy36.html | $29 |
@@ -16,7 +16,7 @@ sd-card music player using a teensy 3.6 micro-controller; based on the example p
 | 1 | rotary encoder | | $4 |
 |  | **total** | | **$111** |
 
-### Todo:
+## todo:
 * read and display jpeg album cover images from tag in mp3 if available
 * add compatibility
   * teensy audio board
