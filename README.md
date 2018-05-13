@@ -1,7 +1,8 @@
 # teensy audio player
 sd-card music player using a teensy 3.6 micro-controller; based on the example provided in ardiuno-teensy-codec by Frank Boesing
 
-* plays mp3, aac files using arduino-teensy-codec library - https://github.com/FrankBoesing/Arduino-Teensy-Codec-lib
+* plays mp3, aac files using arduino-teensy-codec library 
+  * https://github.com/FrankBoesing/Arduino-Teensy-Codec-lib
 * parses mp3 tags (id3v2.3 & id3v2.4)
 * displays mp3 song title and album on 128x128 st7735 color display.
 
