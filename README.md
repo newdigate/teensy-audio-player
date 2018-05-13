@@ -1,6 +1,5 @@
 # teensy audio player
-```firmware to play mp3 and aac audio files from an sdcard on a teensy 3.6 micro-controller``` 
-
+breadboard and firmware project for teensy 3.6 devices to play mp3 and aac audio files from an sdcard on teensy guitar audio shield
 * based on the example provided in ardiuno-teensy-codec by Frank Boesing
 * plays mp3, aac files using arduino-teensy-codec library 
   * https://github.com/FrankBoesing/Arduino-Teensy-Codec-lib
