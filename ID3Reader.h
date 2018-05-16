@@ -30,12 +30,13 @@ public:
             _filename(),
             _file(),
             onID3Tag(),
+            onID3JpegImageTag(),
             _header() {
     };
 
     bool open(const char* filename);
     std::function<void(char*, char*)> onID3Tag;
-
+    std::function<void(const File&, char*)> onID3JpegImageTag;
 private:
     File _file;
     char* _filename;
@@ -52,19 +53,19 @@ private:
 bool ID3Reader::open(const char *filename) {
 
     if (!SD.exists(filename)) {
-        printf("unable to find %s \n", filename);
+        //printf("unable to find %s \n", filename);
         return false;
     }
 
     _file = SD.open(filename);
 
     if (!_file) {
-        printf("unable to open %s \n", filename);
+        //printf("unable to open %s \n", filename);
         return false;
     }
 
     if(!readHeader()) {
-        printf("unable to read header of  %s \n", filename);
+        //printf("unable to read header of  %s \n", filename);
         return false;
     }
 
@@ -97,7 +98,7 @@ bool ID3Reader::readTags() {
         uint32_t position, offset;
         offset = position = _file.position();
 
-        Serial.printf("offset: %x \t\t\t %d\n", offset, offset);
+       // Serial.printf("offset: %x \t\t\t %d\n", offset, offset);
 
         char frameId[5];
         frameId[4] = 0;
@@ -106,7 +107,7 @@ bool ID3Reader::readTags() {
             return false;
         }
         position += 4;
-        Serial.printf("frameId: %s \t\t\t\n", frameId);
+        //Serial.printf("frameId: %s \t\t\t\n", frameId);
         // read frame size
         unsigned long frame_length;
         switch (_header.major_version) {
@@ -138,49 +139,99 @@ bool ID3Reader::readTags() {
         if (frameId[0] == 0)
             return true;
 
-        Serial.printf("frame_length: %x \t\t\t %d\n", frame_length, frame_length);
+        //Serial.printf("frame_length: %x \t\t\t %d\n", frame_length, frame_length);
         bool shouldRead = false;
+        bool isAttachedPictureTag = false;
         if (memcmp(frameId, "TIT2", 4) == 0) shouldRead = true;
         if (memcmp(frameId, "TCON", 4) == 0) shouldRead = true;
         if (memcmp(frameId, "TALB", 4) == 0) shouldRead = true;
-        if (memcmp(frameId, "TPE2", 4) == 0) shouldRead = true;
-
+        if (memcmp(frameId, "TPE2", 4) == 0) shouldRead = true;      
         if (memcmp(frameId, "TCOM", 4) == 0) shouldRead = true;
-
+        if (memcmp(frameId, "APIC", 4) == 0) {
+            shouldRead = true;
+            isAttachedPictureTag = true;
+        }
 
         if (!shouldRead) {
-            Serial.printf("skip: %d\n", frame_length);
-             _file.seek(offset + 10 + frame_length);
-            position += frame_length;
+            //Serial.printf("skip: %d\n", frame_length);
+            position += frame_length ;
+            _file.seek(position);
             continue;
         }
 
-        if (_header.major_version > 2) {
+        if (_header.major_version > 2 && extendedHeader) {
+              _file.read(buffer, 4);
+              position += 4;
 
-            if (extendedHeader) {
-                _file.read(buffer, 4);
-                position += 4;
+              unsigned long size = (_header.major_version == 3 ? 4u : 0u) + bytesToUInt64(buffer);
+              //Serial.printf("extendedHeader.size: %x\n", size);
 
-                unsigned long size = (_header.major_version == 3 ? 4u : 0u) + bytesToUInt64(buffer);
-                Serial.printf("extendedHeader.size: %x\n", size);
-
-                _file.seek(size);
-            }
+              _file.seek(position + size);
         }
-        char *text = new char[frame_length+1]();
-        char *unpadded = text;
+        
+        if (isAttachedPictureTag) {
+            _file.read(buffer, 1);
+            position++;
+            char textEncoding = buffer[0];
+            char mimeType[255];
+            uint32_t index = 0;
+            do {
+                _file.read(buffer, 1);
+                position++;
+                mimeType[index++] = buffer[0];
 
-        _file.read(text, frame_length);
-        position += frame_length;
-        text[frame_length] = 0;
-        while (unpadded[0] == 0)
-            unpadded++;
+            } while (buffer[0] != 0 && index < 255);
 
-        if (frameId[0] != 0 && unpadded[0] != 0)
-            if (onID3Tag)
-                onID3Tag(frameId, unpadded);
+            Serial.printf("mime: %s\n", mimeType);
 
-        delete[] text;
+            _file.read(buffer, 1);
+            position++;
+
+            char pictureType = buffer[0];
+            char description[255];
+            index = 0;
+            do {
+                _file.read(buffer, 1);
+                position++;
+                description[index++] = buffer[0];
+
+            } while (buffer[0] != 0 && index < 255);
+
+            uint64_t imgSize = frame_length - (position - offset) + 10;
+            //unsigned char *imgData = new unsigned char[imgSize];
+            //_file.read(imgData, imgSize);
+            //position+=imgSize;
+
+
+            //printf("Image data: %s\n", imgData);
+            //for (uint32_t i=0; i<imgSize; i++) {
+            //    if (i % 8 == 7) printf("\n");
+            //    printf("0x%02x ", imgData[i]);
+            //}
+            //printf("\n");
+            //delete [] imgData;
+            if (strcmp(mimeType, "image/jpg") == 0 || strcmp(mimeType, "image/jpeg") == 0)
+                if (onID3JpegImageTag)
+                    onID3JpegImageTag(_file, mimeType);
+
+            _file.seek(position + imgSize);
+        } else {
+
+            char *text = new char[frame_length + 1]();
+            char *unpadded = text;
+            //Serial.printf("!frame length %d\n", frame_length);
+            _file.read(text, frame_length);
+            position += frame_length;
+            text[frame_length] = 0;
+            while (unpadded[0] == 0)
+                unpadded++;
+
+            if (frameId[0] != 0 && unpadded[0] != 0)
+                if (onID3Tag)
+                    onID3Tag(frameId, unpadded);
+
+            delete[] text;
+        }
     }
 }
 
@@ -211,7 +262,7 @@ bool ID3Reader::readHeader() {
     }
 
     if (buffer[0] != 'I' || buffer[1] != 'D' || buffer[2] != '3') {
-        printf("expecting 'ID3' '%c%c%c' \n", buffer[0], buffer[1], buffer[2]);
+        //printf("expecting 'ID3' '%c%c%c' \n", buffer[0], buffer[1], buffer[2]);
         return false;
     }
 
@@ -221,8 +272,8 @@ bool ID3Reader::readHeader() {
     }
     _header.major_version = buffer[0];
     _header.revision_number = buffer[1];
-    Serial.printf("major_version: %d\n", _header.major_version);
-    Serial.printf("revision_number: %d\n", _header.revision_number);
+    //Serial.printf("major_version: %d\n", _header.major_version);
+    //Serial.printf("revision_number: %d\n", _header.revision_number);
 
     // 5 = flags
     if (_file.read(buffer, 1) != 1) {
@@ -235,7 +286,7 @@ bool ID3Reader::readHeader() {
         return false;
     }
     _header.tag_size = readUnsigned7bitsX4(buffer);
-    Serial.printf("header size: %d\n", _header.tag_size );
+    //Serial.printf("header size: %d\n", _header.tag_size );
     return true;
 }
 
