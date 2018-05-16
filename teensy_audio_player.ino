@@ -32,6 +32,11 @@
 #include <play_sd_mp3.h> //mp3 decoder
 #include <play_sd_aac.h> // AAC decoder
 #include "ID3Reader.h"
+#include "picojpeg.h"
+//#define SWAP_BYTES
+#include "JpegDecoder2.h"
+#define minimum(a,b)     (((a) < (b)) ? (a) : (b))
+
 
 #define ENCODER_DO_NOT_USE_INTERRUPTS
 #include <Encoder.h>
@@ -119,6 +124,8 @@ unsigned long encHasntChangedSince = 0;
 boolean encoderChanged = false;
 
 bool readDirectory();
+void drawJpeg(const File &jpegFile, Adafruit_ST7735 &tft, int xpos, int ypos);
+void renderJPEG( Adafruit_ST7735 &tft, int xpos, int ypos);
 
 void setup() {
   Serial.begin(115200);
@@ -197,34 +204,58 @@ void playFileMP3(const char *filename)
   
   tft.fillScreen(ST7735_BLACK);
  
-
+  char trackname[255];
+  char albumname[255];
+  char composername[255];
   ID3Reader id3reader = ID3Reader();  
+  
   id3reader.onID3Tag = [&] (const char *tag, const char *text) {
+
         Serial.printf("!!!! -%s : %s\n", tag, text);
         if (memcmp(tag,"TIT2",4) == 0) {
-          tft.setCursor(0,5);
-          tft.setTextSize(1);
-          tft.setTextColor(ST7735_WHITE);   
-          tft.print(text);
-          tft.print(" ");
+          sprintf(trackname, text);
+
         } else if (memcmp(tag,"TALB",4) == 0) {
+          sprintf(albumname, text);
           //tft.setCursor(0,64);
-          tft.setTextSize(1);
-          tft.setTextColor(ST7735_GREEN);   
-          tft.print(text);
-          tft.print("\n");
+
+        }
+        else if (memcmp(tag,"TPE2",4) == 0) {
+          sprintf(composername, text);
+          //tft.setCursor(0,64);
+          //tft.setTextSize(1);
+          //tft.setTextColor(ST7735_GREEN);   
+          //tft.print(text);
+          //tft.print("\n");
         }
     };
-
+  id3reader.onID3JpegImageTag = [&] (const File &jpegFile, char *text) {
+     Serial.printf("<><>img : %s\n", text);
+    drawJpeg(jpegFile, tft, 0,0);
+  };
   id3reader.open(filename);
   playMp31.play(filename);
 
-  
-        
-        
-
-
-
+  tft.setCursor(0,5);
+  if (trackname[0] != 0) {  
+    tft.setTextSize(1);
+    tft.setTextColor(ST7735_WHITE);   
+    tft.print(trackname);
+    tft.print(" ");
+  }
+  if (albumname[0] != 0) {
+    tft.setTextSize(1);
+    tft.setTextColor(ST7735_GREEN);   
+    tft.print(albumname);
+    tft.print("\n");
+  }
+  if (composername[0] != 0)  {
+    tft.setTextSize(1);
+    tft.setTextColor(ST7735_BLUE);   
+    tft.print(composername);
+    tft.print("\n");
+  }
+    
   // Simply wait for the file to finish playing.
   while (playMp31.isPlaying()) {
     // update controls!
@@ -351,8 +382,23 @@ void controls() {
     if (encoderChanged && millis() - encHasntChangedSince >= 100) {
       signed char delta = delta = (newPosition > oldPosition)? 1 : -1;
       oldPosition = newPosition;
+
+
+      tft.setCursor(0,0);
+      tft.setTextSize(2);
+      tft.setTextColor(ST7735_BLACK);   
+      tft.print(currentDirectory);
+      tft.print("\n");
+
+      
       currentDirectory += delta;
       Serial.printf("currentDirectory %d \n", currentDirectory);
+     
+      tft.setCursor(0,0);
+      tft.setTextSize(2);
+      tft.setTextColor(ST7735_GREEN);   
+      tft.print(currentDirectory);
+      tft.print("\n");
       encoderChanged = false;
    }
   }
@@ -521,4 +567,129 @@ void randomtrack(){
   track= random(tracknum);
 
   tracklist[track].toCharArray(playthis, sizeof(tracklist[track])); //since we have to convert String to Char will do this    
+}
+
+
+
+
+
+
+
+
+void drawJpeg(const File &jpegFile, Adafruit_ST7735 &tft, int xpos, int ypos) {
+
+  Serial.println("===========================");
+  Serial.print("Drawing file: "); 
+  Serial.println("===========================");
+
+  // Open the named file (the Jpeg decoder library will close it after rendering image)
+  //fs::File jpegFile = SPIFFS.open( filename, "r");    // File handle reference for SPIFFS
+  //  File jpegFile = SD.open( filename, FILE_READ);  // or, file handle reference for SD library
+
+  //ESP32 always seems to return 1 for jpegFile so this null trap does not work
+  //if ( !jpegFile ) {
+  //  Serial.print("ERROR: File not open\""); 
+  //  return;
+ // }
+
+  // Use one of the three following methods to initialise the decoder,
+  // the filename can be a String or character array type:
+
+  //boolean decoded = JpegDec.decodeFsFile(jpegFile); // Pass a SPIFFS file handle to the decoder,
+  boolean decoded = JpegDec.decodeSdFile(jpegFile); // or pass the SD file handle to the decoder,
+  //boolean decoded = JpegDec.decodeFsFile(filename);  // or pass the filename (leading / distinguishes SPIFFS files)
+
+  if (decoded) {
+    // print information about the image to the serial port
+    //jpegInfo();
+    Serial.printf("decoded, rendering... \n");
+    // render the image onto the screen at given coordinates
+    renderJPEG(tft, xpos, ypos);
+  }
+  else {
+    Serial.println("Jpeg file format not supported!");
+  }
+  JpegDec.reset();
+}
+
+
+
+//====================================================================================
+//   Decode and paint onto the TFT screen
+//====================================================================================
+void renderJPEG( Adafruit_ST7735 &tft, int xpos, int ypos) {
+
+  // retrieve infomration about the image
+  uint16_t *pImg;
+  uint16_t mcu_w = JpegDec.MCUWidth;
+  uint16_t mcu_h = JpegDec.MCUHeight;
+  uint32_t max_x = JpegDec.width;
+  uint32_t max_y = JpegDec.height;
+
+  // Jpeg images are draw as a set of image block (tiles) called Minimum Coding Units (MCUs)
+  // Typically these MCUs are 16x16 pixel blocks
+  // Determine the width and height of the right and bottom edge image blocks
+  uint32_t min_w = minimum(mcu_w, max_x % mcu_w);
+  uint32_t min_h = minimum(mcu_h, max_y % mcu_h);
+
+  // save the current image block size
+  uint32_t win_w = mcu_w;
+  uint32_t win_h = mcu_h;
+
+  // record the current time so we can measure how long it takes to draw an image
+  uint32_t drawTime = millis();
+
+  // save the coordinate of the right and bottom edges to assist image cropping
+  // to the screen size
+  max_x += xpos;
+  max_y += ypos;
+
+  // read each MCU block until there are no more
+  while ( JpegDec.read()) {
+
+    // save a pointer to the image block
+    pImg = JpegDec.pImage;
+
+    // calculate where the image block should be drawn on the screen
+    int mcu_x = JpegDec.MCUx * mcu_w + xpos;
+    int mcu_y = JpegDec.MCUy * mcu_h + ypos;
+
+    //pImg += (JpegDec.MCUx * mcu_w * JpegDec.MCUy * mcu_h)*2;
+
+    // check if the image block size needs to be changed for the right and bottom edges
+    if (mcu_x + mcu_w <= max_x) win_w = mcu_w;
+    else win_w = min_w;
+    if (mcu_y + mcu_h <= max_y) win_h = mcu_h;
+    else win_h = min_h;
+
+    // calculate how many pixels must be drawn
+    uint32_t mcu_pixels = win_w * win_h;
+
+
+    // draw image block if it will fit on the screen  
+    if ( ( mcu_x + win_w) <= tft.width() && ( mcu_y + win_h) <= tft.height()) {  
+      //Serial.printf("jpeg window: (%d,%d, %d,%d) - %d", mcu_x, mcu_y, win_w, win_h, mcu_pixels);  
+      // open a window onto the screen to paint the pixels into
+      //TFTscreen.setAddrWindow(mcu_x, mcu_y, mcu_x + win_w - 1, mcu_y + win_h - 1);
+      //tft.setAddrWindow(mcu_x, mcu_y, mcu_x + win_w - 1, mcu_y + win_h - 1);
+      // push all the image block pixels to the screen
+      //while (mcu_pixels--) ; tft.pushColor(*pImg++); // Send to TFT 16 bits at a time
+      for (uint16_t i=0; i<win_w; i++)
+        for (uint16_t j=0; j<win_h; j++) 
+          tft.drawPixel(mcu_x + j, mcu_y + i, *pImg++);
+    } 
+
+    // stop drawing blocks if the bottom of the screen has been reached
+    // the abort function will close the file
+    else 
+    if ( ( mcu_y + win_h) >= tft.height()) JpegDec.abort();
+
+  }
+
+  // calculate how long it took to draw the image
+  drawTime = millis() - drawTime; // Calculate the time it took
+
+  // print the results to the serial port
+  Serial.print  ("Total render time was    : "); Serial.print(drawTime); Serial.println(" ms");
+  Serial.println("=====================================");
 }
