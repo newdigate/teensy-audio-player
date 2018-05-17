@@ -176,10 +176,7 @@ void setup() {
   Serial.println("started sdcard...\n");
   //Starting to index the SD card for MP3/AAC.
    
-  while (!readDirectory()) { 
-    delay(100); 
-  } 
- 
+
 
 
 
@@ -187,8 +184,39 @@ void setup() {
   //tft.setRotation(2);
   tft.setTextWrap(true);
   tft.fillScreen(ST7735_BLACK);
+  tft.setTextColor(ST7735_BLUE);   
+  tft.print("Teensy audio player...");
+
+  const char *jpeglogopath = "/logo.jpg";
+  if (SD.exists(jpeglogopath)) {
+    drawJpeg(jpeglogopath);   
+  }
+
+  while (!readDirectory()) { 
+    delay(100); 
+  } 
+ 
 
   oldPosition = myEnc.read();
+}
+
+void drawJpeg(const char *filename) {
+  File jpegFile = SD.open(filename, FILE_READ);
+  boolean decoded = JpegDec.decodeSdFile(jpegFile); // or pass the SD file handle to the decoder,
+  //boolean decoded = JpegDec.decodeFsFile(filename);  // or pass the filename (leading / distinguishes SPIFFS files)
+
+  if (decoded) {
+    // print information about the image to the serial port
+    //jpegInfo();
+    //Serial.printf("decoded, rendering... \n");
+    // render the image onto the screen at given coordinates
+    renderJPEG(tft, 0, 0);
+  }
+  else {
+    Serial.println("Jpeg file format not supported!");
+  }
+  JpegDec.reset();
+  jpegFile.close();
 }
 
 void playFileMP3(const char *filename)
@@ -207,60 +235,87 @@ void playFileMP3(const char *filename)
   char trackname[255];
   char albumname[255];
   char composername[255];
-  ID3Reader id3reader = ID3Reader();  
-  
-  id3reader.onID3Tag = [&] (const char *tag, const char *text) {
+          memset(trackname, 0, sizeof(trackname));
+        memset(albumname, 0, sizeof(albumname));
+        memset(composername, 0, sizeof(composername));
+      
+        ID3Reader id3reader = ID3Reader();  
+    
+        id3reader.onID3Tag = [&] (const char *tag, const char *text) {
+        
+              Serial.printf("!!!! -%s : %s\n", tag, text);
+              if (memcmp(tag,"TIT2",4) == 0) {
+                sprintf(trackname, text);
+      
+              } else if (memcmp(tag,"TALB",4) == 0) {
+                sprintf(albumname, text);
+                //tft.setCursor(0,64);
+      
+              }
+              else if (memcmp(tag,"TPE2",4) == 0) {
+                sprintf(composername, text);
+                //tft.setCursor(0,64);
+                //tft.setTextSize(1);
+                //tft.setTextColor(ST7735_GREEN);   
+                //tft.print(text);
+                //tft.print("\n");
+              }
+          };
+          
+        id3reader.onID3JpegImageTag = [&] (File &jpegFile, char *text, uint64_t alength) {
+          //Serial.printf("<><>img : %s\n", text);
+          //File currentImage = SD.open("/current.jpg", FILE_WRITE);
+          //uint64_t totalBytes = 0;
+          //int n = 0;
+          //char buff[255];
+          //while (((n = jpegFile.read(buff, sizeof(buff))) > 0)  && (totalBytes < alength)) {
+          // totalBytes += n;
+          //  currentImage.write(buff, n);
+            //Serial.printf("<><>img :rrrrrrrrr");
+          //}   
+          //currentImage.close();
+          //Serial.printf("<><>img :complete");
+          
+          drawJpeg(jpegFile, tft, 0,0);
+      };
+      id3reader.open(filename);
 
-        Serial.printf("!!!! -%s : %s\n", tag, text);
-        if (memcmp(tag,"TIT2",4) == 0) {
-          sprintf(trackname, text);
+      
 
-        } else if (memcmp(tag,"TALB",4) == 0) {
-          sprintf(albumname, text);
-          //tft.setCursor(0,64);
-
-        }
-        else if (memcmp(tag,"TPE2",4) == 0) {
-          sprintf(composername, text);
-          //tft.setCursor(0,64);
-          //tft.setTextSize(1);
-          //tft.setTextColor(ST7735_GREEN);   
-          //tft.print(text);
-          //tft.print("\n");
-        }
-    };
-  id3reader.onID3JpegImageTag = [&] (const File &jpegFile, char *text) {
-     Serial.printf("<><>img : %s\n", text);
-    drawJpeg(jpegFile, tft, 0,0);
-  };
-  id3reader.open(filename);
   playMp31.play(filename);
 
-  tft.setCursor(0,5);
-  if (trackname[0] != 0) {  
-    tft.setTextSize(1);
-    tft.setTextColor(ST7735_WHITE);   
-    tft.print(trackname);
-    tft.print(" ");
-  }
-  if (albumname[0] != 0) {
-    tft.setTextSize(1);
-    tft.setTextColor(ST7735_GREEN);   
-    tft.print(albumname);
-    tft.print("\n");
-  }
-  if (composername[0] != 0)  {
-    tft.setTextSize(1);
-    tft.setTextColor(ST7735_BLUE);   
-    tft.print(composername);
-    tft.print("\n");
-  }
-    
+  bool displayedInfo = false;
   // Simply wait for the file to finish playing.
   while (playMp31.isPlaying()) {
     // update controls!
     controls();
     serialcontrols();
+
+    if (!displayedInfo) {
+
+      //drawJpeg("/current.jpg");
+      displayedInfo = true;
+
+      tft.setCursor(0,5);
+      if (trackname[0] != 0) {  
+        tft.setTextSize(1);
+        tft.setTextColor(ST7735_WHITE);   
+        tft.print(trackname);
+        tft.print(" ");
+      }
+      if (albumname[0] != 0) {
+        tft.setTextSize(1);
+        tft.setTextColor(ST7735_GREEN);   
+        tft.print(albumname);
+        tft.print("\n");
+      }
+      if (composername[0] != 0)  {
+        tft.setTextSize(1);
+        tft.setTextColor(ST7735_BLUE);   
+        tft.print(composername);
+        tft.print("\n");
+      }
+    }   
   }
 }
 
@@ -384,16 +439,13 @@ void controls() {
       oldPosition = newPosition;
 
 
-      tft.setCursor(0,0);
-      tft.setTextSize(2);
-      tft.setTextColor(ST7735_BLACK);   
-      tft.print(currentDirectory);
-      tft.print("\n");
+
 
       
       currentDirectory += delta;
       Serial.printf("currentDirectory %d \n", currentDirectory);
-     
+
+      tft.fillScreen(ST7735_BLACK);
       tft.setCursor(0,0);
       tft.setTextSize(2);
       tft.setTextColor(ST7735_GREEN);   
@@ -626,6 +678,9 @@ void renderJPEG( Adafruit_ST7735 &tft, int xpos, int ypos) {
   uint32_t max_x = JpegDec.width;
   uint32_t max_y = JpegDec.height;
 
+  uint32_t scaleFactor1000_x = 128 * 1000 / max_x;
+  uint32_t scaleFactor1000_y = 128 * 1000 / max_y;
+
   // Jpeg images are draw as a set of image block (tiles) called Minimum Coding Units (MCUs)
   // Typically these MCUs are 16x16 pixel blocks
   // Determine the width and height of the right and bottom edge image blocks
@@ -667,21 +722,34 @@ void renderJPEG( Adafruit_ST7735 &tft, int xpos, int ypos) {
 
 
     // draw image block if it will fit on the screen  
-    if ( ( mcu_x + win_w) <= tft.width() && ( mcu_y + win_h) <= tft.height()) {  
+    //if ( ( mcu_x + win_w) <= tft.width() && ( mcu_y + win_h) <= tft.height()) {  
       //Serial.printf("jpeg window: (%d,%d, %d,%d) - %d", mcu_x, mcu_y, win_w, win_h, mcu_pixels);  
       // open a window onto the screen to paint the pixels into
       //TFTscreen.setAddrWindow(mcu_x, mcu_y, mcu_x + win_w - 1, mcu_y + win_h - 1);
       //tft.setAddrWindow(mcu_x, mcu_y, mcu_x + win_w - 1, mcu_y + win_h - 1);
       // push all the image block pixels to the screen
       //while (mcu_pixels--) ; tft.pushColor(*pImg++); // Send to TFT 16 bits at a time
+      uint16_t x = 0, y = 0, old_x = 1, old_y = 1;     
       for (uint16_t i=0; i<win_w; i++)
-        for (uint16_t j=0; j<win_h; j++) 
-          tft.drawPixel(mcu_x + j, mcu_y + i, *pImg++);
-    } 
+      {
+        y = (scaleFactor1000_y * (mcu_y + i))/1000;
+        if (y != old_y) {
+          for (uint16_t j=0; j<win_h; j++) {
+            x = (scaleFactor1000_x * (mcu_x + j))/1000;           
+            if (x != old_x)
+              tft.drawPixel(x, y, *pImg++);
+            else
+              pImg++;
+            old_x = x;
+            old_y = y;
+          }
+        } else pImg+=win_h;
+      }
+    //} 
 
     // stop drawing blocks if the bottom of the screen has been reached
     // the abort function will close the file
-    else 
+//    else 
     if ( ( mcu_y + win_h) >= tft.height()) JpegDec.abort();
 
   }
