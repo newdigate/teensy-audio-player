@@ -36,7 +36,7 @@ public:
 
     bool open(const char* filename);
     std::function<void(char*, char*)> onID3Tag;
-    std::function<void(const File&, char*)> onID3JpegImageTag;
+    std::function<void(File&, char*, uint64_t)> onID3JpegImageTag;
 private:
     File _file;
     char* _filename;
@@ -212,7 +212,7 @@ bool ID3Reader::readTags() {
             //delete [] imgData;
             if (strcmp(mimeType, "image/jpg") == 0 || strcmp(mimeType, "image/jpeg") == 0)
                 if (onID3JpegImageTag)
-                    onID3JpegImageTag(_file, mimeType);
+                    onID3JpegImageTag(_file, mimeType, imgSize);
 
             _file.seek(position + imgSize);
         } else {
